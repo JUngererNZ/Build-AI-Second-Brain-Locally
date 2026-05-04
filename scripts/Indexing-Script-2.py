@@ -24,26 +24,58 @@ def move_from_inbox():
         os.makedirs(INBOX_PATH)
         return
 
-    files = os.listdir(INBOX_PATH)
-    if not files:
+    entries = os.listdir(INBOX_PATH)
+    if not entries:
         print("📥 Inbox is empty. Proceeding to vault check...")
         return
 
-    print(f"🚚 Found {len(files)} new files in inbox. Moving to vault...")
-    for filename in files:
-        source = os.path.join(INBOX_PATH, filename)
-        destination = os.path.join(VAULT_PATH, filename)
+    print(f"🚚 Found {len(entries)} items in inbox. Moving files to vault...")
+    for name in entries:
+        source = os.path.join(INBOX_PATH, name)
+
+        # Skip directories; only move plain files
+        if os.path.isdir(source):
+            print(f"📁 Skipping directory in inbox: {name}")
+            continue
+
+        destination = os.path.join(VAULT_PATH, name)
 
         # Handle potential filename collisions
         if os.path.exists(destination):
-            print(f"⚠️ {filename} already exists in vault. Skipping move.")
+            print(f"⚠️ {name} already exists in vault. Skipping move.")
             continue
 
         try:
             shutil.move(source, destination)
-            print(f"✅ Moved: {filename}")
+            print(f"✅ Moved: {name}")
         except Exception as e:
-            print(f"❌ Failed to move {filename}: {e}")
+            print(f"❌ Failed to move {name}: {e}")
+
+
+def cleanup_inbox():
+    """Final safety: remove any leftover files and empty folders in inbox/."""
+    if not os.path.exists(INBOX_PATH):
+        return
+
+    # Delete remaining files
+    for root, dirs, files in os.walk(INBOX_PATH, topdown=False):
+        for fname in files:
+            fpath = os.path.join(root, fname)
+            try:
+                os.remove(fpath)
+                print(f"🗑️ Deleted leftover file from inbox: {fpath}")
+            except Exception as e:
+                print(f"❌ Failed to delete {fpath}: {e}")
+
+        # Remove empty directories
+        for dname in dirs:
+            dpath = os.path.join(root, dname)
+            try:
+                if not os.listdir(dpath):
+                    os.rmdir(dpath)
+                    print(f"🧹 Removed empty folder from inbox: {dpath}")
+            except Exception as e:
+                print(f"❌ Failed to remove folder {dpath}: {e}")
 
 
 def extract_text(file_path):
@@ -75,7 +107,7 @@ def chunk_text(text):
 
 def index_vault():
     """Main loop to move from inbox and then process files in the vault."""
-    # Step 1: Sweep the inbox (this should leave inbox/ empty)
+    # Step 1: Sweep the inbox (this should leave inbox/ with only odd leftovers)
     move_from_inbox()
 
     print("🚀 Starting indexing process...")
@@ -111,7 +143,9 @@ def index_vault():
                 metadatas=[{"source": filename, "chunk_index": i}],
             )
 
-    print("✨ Indexing complete. Knowledge is now searchable!")
+    # Step 3: final clean-up so inbox/ is guaranteed empty
+    cleanup_inbox()
+    print("✨ Indexing complete. Inbox is clean and knowledge is searchable!")
 
 
 if __name__ == "__main__":
