@@ -5,11 +5,11 @@ import ollama
 from pypdf import PdfReader
 
 # --- Configuration ---
-INBOX_PATH = "./inbox"  # Added reference to inbox
+INBOX_PATH = "./inbox"
 VAULT_PATH = "./vault"
 DB_PATH = "./db"
 COLLECTION_NAME = "second_brain"
-EMBED_MODEL = "nomic-embed-text:latest" # Updated to your confirmed model
+EMBED_MODEL = "nomic-embed-text:latest" 
 CHUNK_SIZE = 1000  
 CHUNK_OVERLAP = 100 
 
@@ -18,7 +18,7 @@ client = chromadb.PersistentClient(path=DB_PATH)
 collection = client.get_or_create_collection(name=COLLECTION_NAME)
 
 def move_from_inbox():
-    """Subtask: Moves all files from inbox/ to vault/ before indexing."""
+    """Moves all files from inbox/ to vault/ before indexing."""
     if not os.path.exists(INBOX_PATH):
         os.makedirs(INBOX_PATH)
         return
@@ -35,14 +35,18 @@ def move_from_inbox():
         
         # Handle potential filename collisions
         if os.path.exists(destination):
+            # If it exists, we append a timestamp or just skip to avoid overwrite
             print(f"⚠️ {filename} already exists in vault. Skipping move.")
             continue
             
-        shutil.move(source, destination)
-        print(f"✅ Moved: {filename}")
+        try:
+            shutil.move(source, destination)
+            print(f"✅ Moved: {filename}")
+        except Exception as e:
+            print(f"❌ Failed to move {filename}: {e}")
 
 def extract_text(file_path):
-    """Extracts text from Markdown, Text, and PDF files[cite: 2]."""
+    """Extracts text from Markdown, Text, and PDF files."""
     ext = os.path.splitext(file_path)[1].lower()
     content = ""
     try:
@@ -52,25 +56,31 @@ def extract_text(file_path):
         elif ext == ".pdf":
             reader = PdfReader(file_path)
             for page in reader.pages:
-                content += page.extract_text() + "\n"
+                text = page.extract_text()
+                if text:
+                    content += text + "\n"
     except Exception as e:
-        print(f"❌ Error reading {file_path}: {e}")[cite: 2]
+        print(f"❌ Error reading {file_path}: {e}")
     return content
 
 def chunk_text(text):
-    """Splits text into smaller pieces for better retrieval[cite: 2]."""
+    """Splits text into smaller pieces for better retrieval."""
     chunks = []
     for i in range(0, len(text), CHUNK_SIZE - CHUNK_OVERLAP):
         chunks.append(text[i : i + CHUNK_SIZE])
     return chunks
 
 def index_vault():
-    """Main loop to process files in the vault[cite: 2]."""
-    # Run the Librarian subtask first
+    """Main loop to process files in the vault."""
+    # Step 1: Sweep the inbox
     move_from_inbox()
 
     print("🚀 Starting indexing process...")
-    for filename in os.listdir(VAULT_PATH):
+    
+    # Refresh file list after move
+    vault_files = os.listdir(VAULT_PATH)
+    
+    for filename in vault_files:
         file_path = os.path.join(VAULT_PATH, filename)
         
         if os.path.isdir(file_path):
@@ -80,16 +90,17 @@ def index_vault():
         raw_text = extract_text(file_path)
         
         if not raw_text.strip():
+            print(f"⚠️ Skipping empty or unreadable file: {filename}")
             continue
 
         chunks = chunk_text(raw_text)
         
         for i, chunk in enumerate(chunks):
-            # Generate the embedding (vector) via Ollama[cite: 2]
+            # Generate the embedding via Ollama
             response = ollama.embeddings(model=EMBED_MODEL, prompt=chunk)
             embedding = response["embedding"]
             
-            # Upsert used to prevent duplicate IDs if running multiple times
+            # Upsert ensures we don't get 'ID already exists' errors
             collection.upsert(
                 ids=[f"{filename}_{i}"],
                 embeddings=[embedding],
@@ -97,7 +108,7 @@ def index_vault():
                 metadatas=[{"source": filename, "chunk_index": i}]
             )
 
-    print(f"✅ Indexing complete. Knowledge is now searchable!")[cite: 2]
+    print("✨ Indexing complete. Knowledge is now searchable!")
 
 if __name__ == "__main__":
     # Ensure directories exist
