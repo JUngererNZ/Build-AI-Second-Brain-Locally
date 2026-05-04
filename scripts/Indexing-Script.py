@@ -1,3 +1,4 @@
+# --- 1st try at creating such ---
 import os
 import chromadb
 import ollama
